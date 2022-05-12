@@ -1,11 +1,17 @@
 import '~~/styles/main-page.css';
 import { NETWORKS } from '@scaffold-eth/common/src/constants';
 import { GenericContract } from 'eth-components/ant/generic-contract';
-import { useContractReader, useBalance, useEthersAdaptorFromProviderOrSigners, useEventListener } from 'eth-hooks';
+import {
+  useContractReader,
+  useBalance,
+  useEthersAdaptorFromProviderOrSigners,
+  useEventListener,
+  useContractLoader,
+} from 'eth-hooks';
 import { useEthersAppContext } from 'eth-hooks/context';
 import { useDexEthPrice } from 'eth-hooks/dapps';
 import { asEthersAdaptor } from 'eth-hooks/functions';
-import React, { FC, useEffect, useState } from 'react';
+import React, { FC, useContext, useEffect, useState } from 'react';
 import { BrowserRouter, Switch } from 'react-router-dom';
 
 import { MainPageFooter, MainPageHeader, createPagesAndTabs, TContractPageList } from './components/main';
@@ -16,6 +22,9 @@ import { useCreateAntNotificationHolder } from '~~/components/main/hooks/useAntN
 import { useBurnerFallback } from '~~/components/main/hooks/useBurnerFallback';
 import { useScaffoldProviders as useScaffoldAppProviders } from '~~/components/main/hooks/useScaffoldAppProviders';
 import { BURNER_FALLBACK_ENABLED, MAINNET_PROVIDER } from '~~/config/app.config';
+import { DAO } from './components/pages/dao/DAO';
+import { transactor } from 'eth-components/functions';
+import { EthComponentsSettingsContext } from 'eth-components/models';
 
 /**
  * ⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️⛳️
@@ -71,20 +80,21 @@ export const MainPage: FC = () => {
   // -----------------------------
 
   // init contracts
-  const yourContract = useAppContracts('YourContract', ethersAppContext.chainId);
-  const yourNFT = useAppContracts('YourNFT', ethersAppContext.chainId);
+
+  const powDAO = useAppContracts('PowDAO', ethersAppContext.chainId);
+
   const mainnetDai = useAppContracts('DAI', NETWORKS.mainnet.chainId);
-
+  const reEntrancyAttack = useAppContracts('ReEntrancyAttack', ethersAppContext.chainId);
   // keep track of a variable from the contract in the local React state:
-  const [purpose, update] = useContractReader(
-    yourContract,
-    yourContract?.purpose,
-    [],
-    yourContract?.filters.SetPurpose()
-  );
+  // const [purpose, update] = useContractReader(
+  //   yourContract,
+  //   yourContract?.purpose,
+  //   [],
+  //   yourContract?.filters.SetPurpose()
+  // );
 
-  // 📟 Listen for broadcast events
-  const [setPurposeEvents] = useEventListener(yourContract, 'SetPurpose', 0);
+  // // 📟 Listen for broadcast events
+  // const [setPurposeEvents] = useEventListener(yourContract, 'SetPurpose', 0);
 
   // -----------------------------
   // .... 🎇 End of examples
@@ -100,39 +110,68 @@ export const MainPage: FC = () => {
     setRoute(window.location.pathname);
   }, [setRoute]);
 
+  const signer = scaffoldAppProviders.localAdaptor?.signer;
+  const settingsContext = useContext(EthComponentsSettingsContext);
+
+  const tx = transactor(settingsContext, signer, undefined, undefined, true);
+
+  const [submitProposalEvents] = useEventListener(powDAO, 'SubmitProposal', 0);
+  const [processedProposalEvents] = useEventListener(powDAO, 'ProcessedProposal', 0);
+  let processedDataSet: any[] = [];
+
+  console.log('submitProposal ', submitProposalEvents);
+  console.log('processedProposal ', processedProposalEvents);
+  if (processedProposalEvents.length > 0) {
+    for (let i = 0; i < submitProposalEvents.length; i++) {
+      for (let j = 0; j < processedProposalEvents.length; j++) {
+        if (parseInt(submitProposalEvents[i].args[4]) == parseInt(processedProposalEvents[j].args[4])) {
+          processedDataSet.push(submitProposalEvents[i]);
+        }
+      }
+    }
+    const intersection = submitProposalEvents.filter((x) => !processedDataSet.includes(x));
+    processedDataSet = intersection;
+  } else {
+    processedDataSet = submitProposalEvents;
+  }
+
   // -----------------------------
   // 📃 Page List
   // -----------------------------
   // This is the list of tabs and their contents
   const pageList: TContractPageList = {
     mainPage: {
-      name: 'YourContract',
+      name: 'PowDAO',
       content: (
-        <GenericContract
-          contractName="YourContract"
-          contract={yourContract}
-          mainnetAdaptor={scaffoldAppProviders.mainnetAdaptor}
+        <DAO
+          contractAddress={powDAO?.address}
+          processedDataSet={processedDataSet}
+          mainnetProvider={scaffoldAppProviders.mainnetAdaptor?.provider}
+          price={ethPrice}
+          tx={tx}
           blockExplorer={scaffoldAppProviders.targetNetwork.blockExplorer}
+          powDAO={powDAO}
+          recipientAddress={ethersAppContext.account}
         />
       ),
     },
     pages: [
       {
-        name: 'YourNFT',
+        name: 'PowDAOContract',
         content: (
           <GenericContract
-            contractName="YourNFT"
-            contract={yourNFT}
+            contractName="PowDAO Contract"
+            contract={powDAO}
             mainnetAdaptor={scaffoldAppProviders.mainnetAdaptor}
             blockExplorer={scaffoldAppProviders.targetNetwork.blockExplorer}></GenericContract>
         ),
       },
       {
-        name: 'Dai',
+        name: 'ReEntrancyAttack',
         content: (
           <GenericContract
-            contractName="Dai"
-            contract={mainnetDai}
+            contractName="ReEntrancyAttack"
+            contract={reEntrancyAttack}
             mainnetAdaptor={scaffoldAppProviders.mainnetAdaptor}
             blockExplorer={scaffoldAppProviders.targetNetwork.blockExplorer}
           />
